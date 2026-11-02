@@ -1,0 +1,184 @@
+{
+  "meta": {
+    "report_title": "Vulnerability Assessment & Penetration Testing Report",
+    "target_system": "Example Target : 1",
+    "target_description": "Web Application & Supporting Infrastructure",
+    "assessment_type": "Black-Box External Assessment",
+    "prepared_by": "Your Name — Senior Penetration Tester",
+    "organization": "Your Company",
+    "assessment_window": "01 January 2026 – 07 January 2026",
+    "report_date": "07 January 2026",
+    "version": "1.0 (Final)",
+    "classification": "CONFIDENTIAL — For authorized recipients only",
+    "target_address": "10.0.0.50 (illustrative)",
+    "os": "Ubuntu 22.04 LTS",
+    "application": "Example Web Portal",
+    "audit_type": "Black-Box Penetration Test (External, unauthenticated start)",
+    "objective": "Identify and demonstrate vulnerabilities leading to system compromise",
+    "standards": "PTES · OWASP Testing Guide v4 · MITRE ATT&CK aligned",
+    "distribution": "Restricted — Named recipients only",
+    "legal_note": "This assessment was performed against an authorized target in a controlled environment. All activity was confined to the agreed scope."
+  },
+  "version_history": [
+    {"version": "1.0", "date": "07 Jan 2026", "author": "Your Name", "description": "Final release"}
+  ],
+  "contacts": [
+    {"name": "Your Name", "role": "Senior Penetration Tester", "email": "you@company.com", "organization": "Your Company"}
+  ],
+  "test_team": {
+    "security_analyst": "Your Name",
+    "reviewed_by": "Practice Lead"
+  },
+  "executive_summary": {
+    "introduction": "Your Company was engaged to perform a black-box penetration test against the Example Target. This report presents the findings, impact and remediation guidance.",
+    "objective": "Assess resilience against unauthorized attack and demonstrate whether an external attacker can achieve significant compromise.",
+    "summary_of_results": "The test identified 1 Critical, 1 High and 1 Medium risk findings.",
+    "overall_risk": "HIGH",
+    "overall_risk_rationale": "A combination of weak authentication and an injection vulnerability allows remote compromise of the application tier.",
+    "high_level_recommendation": "Prioritize the Critical finding and enforce strong authentication controls across all services."
+  },
+  "scope": {
+    "target": "Example Target virtual machine",
+    "target_address": "10.0.0.50",
+    "in_scope_services": "HTTP/HTTPS, SSH, any exposed application ports",
+    "objective": "Identify exploitable vulnerabilities and demonstrate impact",
+    "constraints": "No Denial-of-Service; activity confined to agreed target",
+    "testing_approach": "Black-box"
+  },
+  "methodology": [
+    {"phase": "1. Reconnaissance", "activities": "Host discovery, port scan, service enumeration"},
+    {"phase": "2. Vulnerability Analysis", "activities": "Manual testing, version fingerprinting"},
+    {"phase": "3. Exploitation", "activities": "Proof-of-concept exploitation"},
+    {"phase": "4. Post-Exploitation", "activities": "Impact assessment"},
+    {"phase": "5. Reporting", "activities": "Findings, evidence and remediation"}
+  ],
+  "tools_used": "nmap, burp suite, curl, hydra, searchsploit, standard Kali tooling.",
+  "severity_counts": {
+    "critical": 1,
+    "high": 1,
+    "medium": 1,
+    "low": 0,
+    "informational": 0
+  },
+  "findings": [
+    {
+      "id": "VAPT-01",
+      "title": "SQL Injection in Login Form",
+      "severity": "CRITICAL",
+      "ease": "Easy",
+      "cwe": "CWE-89 — Improper Neutralization of Special Elements used in an SQL Command",
+      "cve": "",
+      "owasp": "A03:2021 — Injection",
+      "cvss": "9.8",
+      "affected": "Web application /login",
+      "description": "The login form concatenates user input into an SQL query without parameterization, allowing an attacker to bypass authentication or extract data.",
+      "risk": "Full authentication bypass and potential data exfiltration from the backend database.",
+      "preconditions": "None — unauthenticated.",
+      "steps": "1. Navigate to /login.\n2. Submit username: admin' OR '1'='1' --\n3. Observe successful authentication bypass.",
+      "evidence": "HTTP 302 redirect to /dashboard with session cookie for admin user.",
+      "recommendation": "• Use parameterized queries / prepared statements exclusively.\n• Apply input validation and least-privilege database accounts.",
+      "references": "CWE-89 · OWASP A03:2021"
+    },
+    {
+      "id": "VAPT-02",
+      "title": "Weak Password Policy — No Account Lockout",
+      "severity": "HIGH",
+      "ease": "Easy",
+      "cwe": "CWE-307 — Improper Restriction of Excessive Authentication Attempts",
+      "cve": "",
+      "owasp": "A07:2021 — Identification & Authentication Failures",
+      "cvss": "7.5",
+      "affected": "Web application authentication",
+      "description": "No rate limiting or account lockout is enforced, allowing unlimited password guessing.",
+      "risk": "Credential stuffing and password spraying succeed against weak or reused passwords.",
+      "preconditions": "",
+      "steps": "hydra -l admin -P rockyou.txt http-post-form \"/login:user=^USER^&pass=^PASS^:F=Invalid\"",
+      "evidence": "Valid credentials recovered after < 5 minutes of dictionary attack.",
+      "recommendation": "Implement progressive delays, account lockout and MFA.",
+      "references": "CWE-307 · OWASP A07:2021"
+    },
+    {
+      "id": "VAPT-03",
+      "title": "Missing Security Headers",
+      "severity": "MEDIUM",
+      "ease": "Easy",
+      "cwe": "CWE-693 — Protection Mechanism Failure",
+      "cve": "",
+      "owasp": "A05:2021 — Security Misconfiguration",
+      "cvss": "5.3",
+      "affected": "All HTTP responses",
+      "description": "Responses lack Content-Security-Policy, X-Frame-Options, HSTS and other recommended headers.",
+      "risk": "Increased exposure to clickjacking, XSS amplification and man-in-the-middle risks on first visit.",
+      "preconditions": "",
+      "steps": "curl -I https://target.example.com | grep -iE 'strict|content-security|x-frame|x-content'",
+      "evidence": "None of the expected headers are present.",
+      "recommendation": "Add a comprehensive security-header set via the reverse proxy or application framework.",
+      "references": "OWASP Secure Headers Project"
+    }
+  ],
+  "attack_narrative": [
+    {
+      "step": "1 — Reconnaissance",
+      "phase": "Recon",
+      "description": "Full TCP port scan and service identification.",
+      "commands": "$ nmap -p- -sV -sC 10.0.0.50"
+    },
+    {
+      "step": "2 — Authentication bypass via SQLi",
+      "phase": "Exploitation",
+      "description": "SQL injection in the login form grants an administrative session.",
+      "commands": "POST /login  user=admin' OR '1'='1'--  & pass=anything"
+    }
+  ],
+  "business_impact": {
+    "summary": "Successful exploitation grants an attacker administrative access to the application and the ability to read or modify sensitive data.",
+    "cia": "Confidentiality — High · Integrity — High · Availability — Medium."
+  },
+  "owasp_coverage": [
+    {"id": "A01", "name": "Broken Access Control", "status": "SAFE", "related": "—"},
+    {"id": "A02", "name": "Cryptographic Failures", "status": "SAFE", "related": "—"},
+    {"id": "A03", "name": "Injection", "status": "UNSAFE", "related": "VAPT-01"},
+    {"id": "A04", "name": "Insecure Design", "status": "SAFE", "related": "—"},
+    {"id": "A05", "name": "Security Misconfiguration", "status": "UNSAFE", "related": "VAPT-03"},
+    {"id": "A06", "name": "Vulnerable & Outdated Components", "status": "SAFE", "related": "—"},
+    {"id": "A07", "name": "Identification & Authentication Failures", "status": "UNSAFE", "related": "VAPT-02"},
+    {"id": "A08", "name": "Software & Data Integrity Failures", "status": "SAFE", "related": "—"},
+    {"id": "A09", "name": "Security Logging & Monitoring Failures", "status": "SAFE", "related": "—"},
+    {"id": "A10", "name": "Server-Side Request Forgery (SSRF)", "status": "SAFE", "related": "—"}
+  ],
+  "cwe_coverage": [
+    {"id": "CWE-89", "name": "SQL Injection", "status": "UNSAFE", "finding": "VAPT-01"},
+    {"id": "CWE-307", "name": "Excessive Authentication Attempts", "status": "UNSAFE", "finding": "VAPT-02"},
+    {"id": "CWE-693", "name": "Protection Mechanism Failure", "status": "UNSAFE", "finding": "VAPT-03"}
+  ],
+  "remediation_roadmap": {
+    "immediate": [
+      "Fix the SQL injection with parameterized queries and rotate any exposed credentials.",
+      "Enable account lockout / rate limiting and enforce a strong password policy."
+    ],
+    "medium_term": [
+      "Deploy MFA on all administrative interfaces.",
+      "Add security headers and enforce HTTPS with HSTS."
+    ],
+    "long_term": [
+      "Embed security testing into the CI/CD pipeline.",
+      "Conduct regular re-assessments."
+    ]
+  },
+  "secure_coding_guidelines": [
+    "Validate all input at the server to prevent injection attacks.",
+    "Use prepared statements / parameterized queries for all database access.",
+    "Enforce strong password policy, account lockout and MFA.",
+    "Apply security headers and use TLS everywhere.",
+    "Keep components current and remove unused services."
+  ],
+  "observations": [],
+  "abbreviations": [
+    {"term": "VAPT", "definition": "Vulnerability Assessment & Penetration Testing"},
+    {"term": "SQLi", "definition": "SQL Injection"},
+    {"term": "CWE", "definition": "Common Weakness Enumeration"},
+    {"term": "CVSS", "definition": "Common Vulnerability Scoring System"},
+    {"term": "OWASP", "definition": "Open Worldwide Application Security Project"},
+    {"term": "MFA", "definition": "Multi-Factor Authentication"}
+  ]
+}

